@@ -1,9 +1,8 @@
 # TikTok Signature Server
 FROM node:20-slim
 
-# Install Chromium and dependencies
+# Install system libraries required by Chrome (not Chrome itself)
 RUN apt-get update && apt-get install -y \
-    chromium \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -26,10 +25,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Cache Puppeteer's Chrome download inside /app so UID 100 can access it
+ENV PUPPETEER_CACHE_DIR=/app/.cache
+
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (production only)
+# Install dependencies — Puppeteer downloads its own Chrome here
 RUN npm ci --only=production
 
 # Copy application files
@@ -41,9 +43,6 @@ COPY javascript/ ./javascript/
 RUN chown -R 100:100 /app
 USER 100
 
-# Set Chrome path for Puppeteer
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PORT=8080
 
 EXPOSE 8080
