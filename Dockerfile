@@ -38,6 +38,9 @@ COPY xgnarly.mjs ./
 COPY benchmark.mjs ./
 COPY javascript/ ./javascript/
 
+RUN chown -R 100:100 /app
+USER 100
+
 # Set Chrome path for Puppeteer
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
