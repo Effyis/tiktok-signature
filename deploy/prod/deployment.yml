@@ -39,7 +39,7 @@ spec:
         image: harbor.sgdctroy.net/sg-tiktok-prod/tiktok-signature:COMMIT_SHA
         imagePullPolicy: IfNotPresent
         securityContext:
-          runAsUser: 100
+          runAsUser: 1000
           allowPrivilegeEscalation: false
           runAsNonRoot: true
           capabilities:

@@ -213,7 +213,6 @@ async function initBrowser() {
       "--disable-dev-shm-usage",
       "--disable-blink-features=AutomationControlled",
       "--disable-gpu",
-      "--disable-crash-reporter",
       "--window-size=1920,1080",
     ];
 
