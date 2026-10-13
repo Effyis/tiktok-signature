@@ -51,6 +51,12 @@ spec:
           value: development
         - name: PORT
           value: "8080"
+        - name: ELASTIC_URL
+          value: "http://elastic-dev-client01.sgdctroy.net:9200"
+        - name: ELASTIC_INDEX
+          value: tiktok-signature-metrics
+        - name: STATS_INTERVAL_MS
+          value: "300000"
         ports:
         - containerPort: 8080
           name: 8080tcp

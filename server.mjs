@@ -100,6 +100,10 @@ let generationCount = 0;
 let initMethod = null;
 let lastInitTime = null;
 
+// Stats accumulators — reset on each Elastic flush
+let statsTotalMs = 0;
+let statsCount = 0;
+
 // Cache of page-emitted signed URLs, keyed by pathname.
 const signedUrlCache = new Map();
 const SIGNED_CACHE_MAX_AGE_MS = 60_000;
@@ -109,6 +113,12 @@ const MAX_GENERATIONS_BEFORE_REFRESH =
   Number(process.env.MAX_GENERATIONS_BEFORE_REFRESH) || 500; // Restart browser after this many signatures
 const MAX_SESSION_AGE_MS =
   Number(process.env.MAX_SESSION_AGE_MS) || 30 * 60 * 1000; // Restart browser after 30 minutes
+
+// Elasticsearch stats reporting
+const ELASTIC_URL = process.env.ELASTIC_URL || "";
+const ELASTIC_INDEX = process.env.ELASTIC_INDEX || "tiktok-signature-metrics";
+const STATS_INTERVAL_MS = Number(process.env.STATS_INTERVAL_MS) || 60_000;
+
 
 // Request queue for sequential processing (prevents concurrent access to browser page)
 const requestQueue = [];
@@ -146,8 +156,11 @@ async function processQueue() {
         `[Queue] Processing request, ${remaining} remaining in queue`,
       );
     }
+    const t0 = Date.now();
     try {
       const result = await signFn();
+      statsTotalMs += Date.now() - t0;
+      statsCount++;
       resolve(result);
     } catch (e) {
       console.error(`[Queue] Request failed: ${e.message}`);
@@ -1136,6 +1149,38 @@ server.listen(PORT, () => {
   // Initialize browser on startup
   initBrowser().catch((e) => console.error("[Server] Init failed:", e.message));
 });
+
+// Elasticsearch stats reporting
+if (ELASTIC_URL) {
+  setInterval(async () => {
+    const count = statsCount;
+    const avgMs = count > 0 ? Math.round(statsTotalMs / count) : null;
+    statsTotalMs = 0;
+    statsCount = 0;
+
+    const now = new Date();
+    const dateSuffix = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const doc = {
+      "@timestamp": now.toISOString(),
+      queue_depth: requestQueue.length,
+      sample_count: count,
+      ...(avgMs !== null && { avg_process_ms: avgMs }),
+    };
+
+    try {
+      const res = await fetch(`${ELASTIC_URL}/${ELASTIC_INDEX}-${dateSuffix}/_doc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(doc),
+      });
+      if (!res.ok) {
+        console.warn(`[Stats] Elastic POST failed: ${res.status} ${res.statusText}`);
+      }
+    } catch (e) {
+      console.warn(`[Stats] Elastic POST error: ${e.message}`);
+    }
+  }, STATS_INTERVAL_MS);
+}
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
