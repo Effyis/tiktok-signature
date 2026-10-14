@@ -88,11 +88,11 @@ steps:
     settings:
       config:
         from_secret: docker_credentials
-      kubernetes_server: https://rancher.sgdctroy.net/k8s/clusters/c-wq4mh
+      kubernetes_server: https://rancher.sgdctroy.net/k8s/clusters/c-stpwd
       kubernetes_cert:
-        from_secret: k8s_prod_ca
+        from_secret: kube_cat_cert
       kubernetes_token:
-        from_secret: k8s_prod_token
+        from_secret: kube_cat_token
     commands:
       - sed -e "s/COMMIT_SHA/${DRONE_COMMIT_SHA}/g" deploy/prod/deployment.yml | kubectl apply -n sg-tiktok-prod -f -
     depends_on:

@@ -93,7 +93,7 @@ metadata:
   namespace: sg-tiktok-prod
 spec:
   rules:
-    - host: tiktok-sig.k8s-prod.sgdctroy.net
+    - host: tiktok-sig.k8s-cat.sgdctroy.net
       http:
         paths:
           - backend:
