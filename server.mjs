@@ -103,6 +103,7 @@ let lastInitTime = null;
 // Stats accumulators — reset on each Elastic flush
 let statsTotalMs = 0;
 let statsCount = 0;
+let statsMaxQueueDepth = 0;
 
 // Cache of page-emitted signed URLs, keyed by pathname.
 const signedUrlCache = new Map();
@@ -134,6 +135,7 @@ function queueSignatureRequest(signFn) {
       console.log(`[Queue] Request queued at position ${queuePosition}`);
     }
     requestQueue.push({ signFn, resolve, reject });
+    if (requestQueue.length > statsMaxQueueDepth) statsMaxQueueDepth = requestQueue.length;
     processQueue();
   });
 }
@@ -577,9 +579,10 @@ async function generateSignedUrl(
   targetUrl,
   userAgent = null,
   navigateTo = null,
+  msToken = null,
 ) {
   return queueSignatureRequest(() =>
-    _generateSignedUrlInternal(targetUrl, userAgent, navigateTo),
+    _generateSignedUrlInternal(targetUrl, userAgent, navigateTo, msToken),
   );
 }
 
@@ -594,6 +597,7 @@ async function _generateSignedUrlInternal(
   targetUrl,
   userAgent = null,
   navigateTo = null,
+  msToken = null,
 ) {
   await initBrowser();
   await ensurePageReady();
@@ -612,7 +616,7 @@ async function _generateSignedUrlInternal(
       return _signViaPageIntercept(fetchUrl, navigateTo, userAgent);
     }
     console.log(`[Server] Signing URL: ${fetchUrl.substring(0, 100)}...`);
-    return _signDirectly(fetchUrl, userAgent);
+    return _signDirectly(fetchUrl, userAgent, msToken);
   };
 
   try {
@@ -672,8 +676,8 @@ async function _signViaPageIntercept(targetUrl, navigateTo, userAgent = null) {
   );
 }
 
-async function _signDirectly(fetchUrl, userAgent = null) {
-  const out = await page.evaluate((url) => {
+async function _signDirectly(fetchUrl, userAgent = null, msToken = null) {
+  const out = await page.evaluate((url, overrideMsToken) => {
     if (typeof window.__sdkN === "undefined") {
       return { error: "SDK not initialized" };
     }
@@ -691,9 +695,10 @@ async function _signDirectly(fetchUrl, userAgent = null) {
 
     const u = new URL(url);
     const msTokenMatches = [...document.cookie.matchAll(/msToken=([^;]+)/g)];
-    const msToken = msTokenMatches.length
+    const cookieMsToken = msTokenMatches.length
       ? msTokenMatches[msTokenMatches.length - 1][1]
       : "";
+    const msToken = overrideMsToken || cookieMsToken;
     u.searchParams.delete("X-Bogus");
     u.searchParams.delete("X-Gnarly");
     u.searchParams.set("msToken", msToken);
@@ -748,7 +753,7 @@ async function _signDirectly(fetchUrl, userAgent = null) {
     } catch (e) {
       return { error: e.message, stack: e.stack };
     }
-  }, fetchUrl);
+  }, fetchUrl, msToken);
 
   if (out.error) {
     throw new Error("Sign failed: " + out.error);
@@ -1058,6 +1063,7 @@ async function handleRequest(req, res) {
       let targetUrl = null;
       let userAgent = null;
       let navigateTo = null;
+      let msToken = null;
 
       // Try to parse as JSON first
       try {
@@ -1065,6 +1071,7 @@ async function handleRequest(req, res) {
         if (json.url) targetUrl = json.url;
         if (json.userAgent) userAgent = json.userAgent;
         if (json.navigateTo) navigateTo = json.navigateTo;
+        if (json.msToken) msToken = json.msToken;
       } catch (e) {
         // Body might be a direct URL string
         try {
@@ -1085,7 +1092,7 @@ async function handleRequest(req, res) {
         return;
       }
 
-      const result = await generateSignedUrl(targetUrl, userAgent, navigateTo);
+      const result = await generateSignedUrl(targetUrl, userAgent, navigateTo, msToken);
 
       res.writeHead(200);
       res.end(
@@ -1155,14 +1162,17 @@ if (ELASTIC_URL) {
   setInterval(async () => {
     const count = statsCount;
     const avgMs = count > 0 ? Math.round(statsTotalMs / count) : null;
+    const maxDepth = statsMaxQueueDepth;
     statsTotalMs = 0;
     statsCount = 0;
+    statsMaxQueueDepth = 0;
 
     const now = new Date();
     const dateSuffix = now.toISOString().slice(0, 10).replace(/-/g, "");
     const doc = {
       "@timestamp": now.toISOString(),
       queue_depth: requestQueue.length,
+      max_queue_depth: maxDepth,
       sample_count: count,
       ...(avgMs !== null && { avg_process_ms: avgMs }),
     };
