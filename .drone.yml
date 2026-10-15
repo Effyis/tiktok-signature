@@ -1,0 +1,99 @@
+kind: pipeline
+name: default
+
+steps:
+
+##  DEV Pipeline Section
+
+  - name: publish_harbor_dev
+    pull: if-not-exists
+    image: plugins/docker
+    when:
+      branch:
+        include:
+          - dev
+      event:
+        - push
+    settings:
+      config:
+        from_secret: docker_credentials
+      username: drone
+      password:
+        from_secret: harbor_drone_pass
+      repo: harbor.sgdctroy.net/socialgist-dev/tiktok-signature
+      tags:
+        - ${DRONE_COMMIT_SHA}
+        - latest
+      registry: harbor.sgdctroy.net
+      dockerfile: Dockerfile
+      insecure: true
+      debug: true
+
+  - name: deploy_k8s_dev
+    image: sinlead/drone-kubectl
+    pull: if-not-exists
+    when:
+      branch:
+        include:
+          - dev
+      event:
+        - push
+    settings:
+      config:
+        from_secret: docker_credentials
+      kubernetes_server: https://rancher.sgdctroy.net/k8s/clusters/c-hw9gt
+      kubernetes_cert:
+        from_secret: k8s_dev_ca
+      kubernetes_token:
+        from_secret: k8s_dev_token
+    commands:
+      - sed -e "s/COMMIT_SHA/${DRONE_COMMIT_SHA}/g" deploy/dev/deployment.yml | kubectl apply -n tiktok -f -
+    depends_on:
+    - publish_harbor_dev
+
+##  PROD Pipeline Section
+  - name: publish_harbor_prod
+    pull: if-not-exists
+    image: plugins/docker
+    when:
+      branch:
+        include:
+          - master
+      event:
+        - push
+    settings:
+      config:
+        from_secret: docker_credentials
+      username: drone
+      password:
+        from_secret: harbor_drone_pass
+      repo: harbor.sgdctroy.net/sg-tiktok-prod/tiktok-signature
+      tags:
+        - ${DRONE_COMMIT_SHA}
+        - latest
+      registry: harbor.sgdctroy.net
+      dockerfile: Dockerfile
+      insecure: true
+      debug: true
+
+  - name: deploy_k8s_prod
+    image: sinlead/drone-kubectl
+    pull: if-not-exists
+    when:
+      branch:
+        include:
+          - master
+      event:
+        - push
+    settings:
+      config:
+        from_secret: docker_credentials
+      kubernetes_server: https://rancher.sgdctroy.net/k8s/clusters/c-stpwd
+      kubernetes_cert:
+        from_secret: kube_cat_cert
+      kubernetes_token:
+        from_secret: kube_cat_token
+    commands:
+      - sed -e "s/COMMIT_SHA/${DRONE_COMMIT_SHA}/g" deploy/prod/deployment.yml | kubectl apply -n sg-tiktok-prod -f -
+    depends_on:
+    - publish_harbor_prod
