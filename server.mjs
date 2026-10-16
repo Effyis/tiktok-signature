@@ -105,6 +105,10 @@ let statsTotalMs = 0;
 let statsCount = 0;
 let statsMaxQueueDepth = 0;
 
+// Init health tracking
+let consecutiveInitFailures = 0;
+let initStartTime = null;
+
 // Cache of page-emitted signed URLs, keyed by pathname.
 const signedUrlCache = new Map();
 const SIGNED_CACHE_MAX_AGE_MS = 60_000;
@@ -190,6 +194,7 @@ async function initBrowser() {
   }
 
   isInitializing = true;
+  initStartTime = Date.now();
   console.log("[Server] Initializing browser...");
 
   try {
@@ -303,14 +308,17 @@ async function initBrowser() {
     // Initialize with local SDK
     await initWithLocalSdk();
     lastInitTime = new Date().toISOString();
+    consecutiveInitFailures = 0;
     console.log(`[Server] Browser ready (init method: ${initMethod})`);
     isReady = true;
   } catch (e) {
+    consecutiveInitFailures++;
     console.error("[Server] Init error:", e.message);
     await closeBrowser();
     throw e;
   } finally {
     isInitializing = false;
+    initStartTime = null;
   }
 }
 
@@ -956,12 +964,21 @@ async function handleRequest(req, res) {
       const sessionAge = lastInitTime
         ? Date.now() - new Date(lastInitTime).getTime()
         : 0;
-      res.writeHead(200);
+      const initStuckMs = isInitializing && initStartTime
+        ? Date.now() - initStartTime
+        : 0;
+      const degraded =
+        consecutiveInitFailures >= 2 ||
+        initStuckMs > 120_000;
+      const statusCode = degraded ? 503 : 200;
+      res.writeHead(statusCode);
       res.end(
         JSON.stringify({
-          status: "ok",
+          status: degraded ? "degraded" : "ok",
           ready: isReady,
           initializing: isInitializing,
+          consecutiveInitFailures,
+          initStuckMs: initStuckMs || undefined,
           initMethod: initMethod,
           lastInitTime: lastInitTime,
           sessionAgeMinutes: Math.round(sessionAge / 60000),
