@@ -518,7 +518,7 @@ async function initPageWithLocalSdk(idn) {
   console.log(`[Identity ${idn.id}] Navigating to TikTok...`);
   await page.goto("https://www.tiktok.com/@zara", {
     waitUntil: "domcontentloaded",
-    timeout: 60000,
+    timeout: 120000,
   });
 
   // Wait for page to settle and SDK to initialize
@@ -554,7 +554,7 @@ async function initPageWithLocalSdk(idn) {
   // reload primes the second pass with the cookies/msToken accumulated on the
   // first pass, after which the page bundle reliably emits signed requests.
   try {
-    await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 120000 });
   } catch (e) {
     console.log(`[Identity ${idn.id}] Reload warning:`, e.message);
   }
@@ -765,6 +765,7 @@ async function warmPool() {
     const missing =
       IDENTITY_POOL_SIZE - identities.length - replacementsInFlight;
     for (let i = 0; i < missing; i++) {
+      await new Promise((r) => setTimeout(r, 20000));
       addIdentity().catch((e) =>
         console.error("[Server] Pool warm-up identity failed:", e.message),
       );
