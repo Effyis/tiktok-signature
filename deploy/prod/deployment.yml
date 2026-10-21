@@ -52,7 +52,7 @@ spec:
         - name: PORT
           value: "8080"
         - name: IDENTITY_POOL_SIZE
-          value: "3"
+          value: "2"
         - name: ELASTIC_URL
           value: "http://elastic-prod-client01.sgdctroy.net:9200"
         - name: ELASTIC_INDEX
@@ -66,7 +66,7 @@ spec:
         resources:
           requests:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "1000m"
           limits:
             memory: "2Gi"
             cpu: "2000m"
