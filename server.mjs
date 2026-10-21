@@ -521,7 +521,7 @@ async function initPageWithLocalSdk(idn) {
   console.log(`[Identity ${idn.id}] Navigating to TikTok...`);
   await page.goto("https://www.tiktok.com/@zara", {
     waitUntil: "domcontentloaded",
-    timeout: 120000,
+    timeout: 60000,
   });
 
   // Wait for page to settle and SDK to initialize
@@ -557,7 +557,7 @@ async function initPageWithLocalSdk(idn) {
   // reload primes the second pass with the cookies/msToken accumulated on the
   // first pass, after which the page bundle reliably emits signed requests.
   try {
-    await page.reload({ waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
   } catch (e) {
     console.log(`[Identity ${idn.id}] Reload warning:`, e.message);
   }
@@ -708,7 +708,10 @@ async function retireIdentity(idn, reason) {
   console.log(
     `[Identity ${idn.id}] Retiring (${reason}; ${idn.generationCount} signatures, ${Math.round(idn.ageMs / 1000)}s old)`,
   );
-  await exportMsTokensToPool(idn);
+  if (!idn.tokensExported) {
+    idn.tokensExported = true;
+    await exportMsTokensToPool(idn);
+  }
 
   // Keep serving from this identity until a replacement is ready, unless we
   // still have other ready identities to carry the load.
