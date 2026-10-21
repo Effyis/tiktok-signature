@@ -78,11 +78,11 @@ spec:
             port: 8080
         readinessProbe:
           initialDelaySeconds: 60
-          periodSeconds: 300
-          failureThreshold: 2
+          periodSeconds: 30
+          failureThreshold: 1
           timeoutSeconds: 15
           httpGet:
-            path: /health
+            path: /ready
             port: 8080
       restartPolicy: Always
 ---

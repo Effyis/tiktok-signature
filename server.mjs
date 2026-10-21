@@ -1030,6 +1030,14 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // Readiness check — used by k8s to pull pod from rotation during browser restart
+    if (url.pathname === "/ready") {
+      const ready = isReady && !isInitializing;
+      res.writeHead(ready ? 200 : 503);
+      res.end(JSON.stringify({ ready, isReady, initializing: isInitializing }));
+      return;
+    }
+
     // Fetch endpoint - makes request through browser (slower, but 100% reliable fallback)
     // Use /signature + external requests for better scalability
     if (url.pathname === "/fetch" && req.method === "POST") {

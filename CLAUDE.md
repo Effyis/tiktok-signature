@@ -12,13 +12,17 @@ Acquisition/crawl support layer. This service has no upstream dependencies withi
 - **msToken** — Session token extracted from browser cookies. Included in the signed query string.
 - **`/signature` vs `/fetch`** — `/signature` returns a signed URL for the caller to request externally (recommended, ~80ms). `/fetch` makes the request from inside the browser (slower, but bypasses bot detection entirely). Use `/fetch` only as a fallback.
 - **Browser fingerprint** — The signed URL is bound to the User-Agent, platform, screen dimensions, and browser language used at signing time. External requests must reproduce these exactly or TikTok rejects the signature.
-- **Session refresh** — The browser session auto-restarts after a configurable number of signatures or elapsed time to avoid detection.
+- **Session refresh** — The browser session auto-restarts after 500 signatures or 30 minutes, whichever comes first. On a proactive refresh, msTokens are exported to the token pool before teardown.
+- **msToken pass-through** — Callers may supply their own `msToken` in the `/signature` request body. The signer uses it instead of the browser session token. Falls back to the browser cookie token if none is provided. This allows crawlers to draw from a shared token pool rather than relying solely on the signer's session.
+- **`/health` vs `/ready`** — `/health` is the liveness probe: returns 503 only when the browser has failed to restart repeatedly (`consecutiveInitFailures >= 2`) or init has been stuck for over 2 minutes. `/ready` is the readiness probe: returns 503 any time `isInitializing` is true or `isReady` is false, signalling k8s to pull the pod from rotation immediately.
 
 ## Architecture
 Requests flow through a sequential queue (one browser page, no concurrent access) into one of two signing paths:
 
 1. **Fast path** (`_signDirectly`) — Calls `window.__sdkN.u[995].v()` inside the browser page to generate X-Bogus, then `encodeXGnarly()` for X-Gnarly. No page navigation. ~80ms.
 2. **Intercept path** (`_signViaPageIntercept`) — Navigates to a TikTok page and captures a signed request emitted by the page bundle. Used when `navigateTo` is passed in the request body.
+
+**Availability design (prod):** 2 replicas run in parallel. During a browser session refresh (~30s), the pod's `/ready` endpoint returns 503 and k8s pulls it from rotation — the other pod handles all traffic. This makes session refreshes nearly invisible to callers. The readiness probe uses `failureThreshold: 1` intentionally: a single pod can sustain full load, so the cost of a false positive (brief single-pod operation) is lower than the cost of routing requests to a pod mid-restart.
 
 Key files:
 - `server.mjs` — HTTP server, browser lifecycle, queue, both signing paths, all endpoints
@@ -68,6 +72,9 @@ Cookies are not required. The User-Agent must exactly match `navigator.user_agen
 - `window.__sdkN.u[995].v()` is the SDK signing function; index 995 is SDK-version-specific and may need updating if the SDK is upgraded
 - `runAsUser: 1000` is required in the k8s securityContext — UID 100 has no home directory in node:20-slim and Chrome will crash at launch
 - Do not set `--no-zygote` or `--single-process` Chrome flags; they cause instability without benefit in this setup
+- The liveness probe (`/health`) only returns 503 on persistent init failure — not during a normal browser restart. This prevents k8s from killing a pod that is mid-refresh and would recover on its own.
+- The readiness probe (`/ready`) returns 503 any time the browser is not ready, including during planned session refreshes. `failureThreshold: 1` is intentional — see Architecture above.
+- msToken pool export (`exportMsTokensToPool`) runs only on proactive session refresh, not on error-triggered restarts. On error, the page state is unknown and `page.evaluate()` may fail.
 
 ## Data handling
 This repo does not handle customer data, PII, or licensed source content.
