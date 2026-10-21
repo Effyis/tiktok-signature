@@ -130,6 +130,9 @@ let lastReportRetireAt = 0;
 
 const SIGNED_CACHE_MAX_AGE_MS = 60_000;
 
+// Requests older than this are rejected as stale — the client has already timed out.
+const QUEUE_STALE_MS = 60_000;
+
 // Elasticsearch stats reporting
 const ELASTIC_URL = process.env.ELASTIC_URL || "";
 const ELASTIC_INDEX = process.env.ELASTIC_INDEX || "tiktok-signature-metrics";
@@ -236,7 +239,7 @@ function queueSignatureRequest(signFn) {
     if (queuePosition > 1) {
       console.log(`[Queue] Request queued at position ${queuePosition}`);
     }
-    requestQueue.push({ signFn, resolve, reject });
+    requestQueue.push({ signFn, resolve, reject, queuedAt: Date.now() });
     if (requestQueue.length > statsMaxQueueDepth) statsMaxQueueDepth = requestQueue.length;
     processQueue();
   });
@@ -900,7 +903,7 @@ async function _generateSignedUrlInternal(
     // SDK got detached from the page (navigation, crash, lost context).
     // Retire this identity and retry once on a fresh one.
     if (
-      /SDK not initialized|SDK not ready|detached|Target closed|Session closed/i.test(
+      /SDK not initialized|SDK not ready|detached|Target closed|Session closed|callFunctionOn timed out/i.test(
         msg,
       )
     ) {
@@ -1442,6 +1445,18 @@ async function handleRequest(req, res) {
     res.end(JSON.stringify({ status: "error", message: e.message }));
   }
 }
+
+setInterval(() => {
+  const now = Date.now();
+  const stale = requestQueue.filter((item) => now - item.queuedAt > QUEUE_STALE_MS);
+  if (!stale.length) return;
+  for (const item of stale) {
+    const idx = requestQueue.indexOf(item);
+    if (idx >= 0) requestQueue.splice(idx, 1);
+    item.reject(new Error("Request timed out in queue"));
+  }
+  console.log(`[Queue] Flushed ${stale.length} stale requests (>${QUEUE_STALE_MS / 1000}s old)`);
+}, 30_000);
 
 if (ELASTIC_URL) {
   setInterval(async () => {
