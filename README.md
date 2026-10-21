@@ -115,11 +115,24 @@ curl -X POST http://localhost:8080/fetch \
 {
   "status": "ok",
   "httpStatus": 200,
+  "contentType": "application/json; charset=utf-8",
   "data": {
     "itemList": [...],
     "cursor": 30,
     "hasMore": true
   }
+}
+```
+
+**Non-JSON responses (HTML pages):** when the target URL returns something that is not JSON (for example a video page such as `https://www.tiktok.com/@user/video/123...`), `data` is `null` and the raw body is returned in `text` instead, so you can extract embedded page data (e.g. `__UNIVERSAL_DATA_FOR_REHYDRATION__`) yourself:
+
+```json
+{
+  "status": "ok",
+  "httpStatus": 200,
+  "contentType": "text/html; charset=utf-8",
+  "data": null,
+  "text": "<!DOCTYPE html>..."
 }
 ```
 
@@ -144,9 +157,27 @@ curl http://localhost:8080/health
 }
 ```
 
+### POST /report
+
+Tell the server that TikTok answered an **empty body** (HTTP 200, content-length 0) for a
+request built from one of its signatures. The server looks up the identity by the `ttwid` /
+`msToken` in the cookies you send and retires it at once, minting a replacement in the
+background, so your next `/signature` comes from a clean identity.
+
+```bash
+curl -X POST http://localhost:8080/report \
+  -H "Content-Type: application/json" \
+  -d '{"cookies": "<the Cookie header you sent to TikTok>", "reason": "item_list empty body"}'
+```
+
+Response `action` is one of `retired`, `ignored_too_young` (identity younger than
+`REPORT_MIN_AGE_MS`, the empty body was most likely your egress IP), `ignored_cooldown`
+(another retirement happened within `REPORT_RETIRE_COOLDOWN_MS`), `already_retiring` or
+`unknown_identity`.
+
 ### GET /restart
 
-Restart the browser session (useful if signatures stop working).
+Retire every identity and warm a fresh pool (useful if signatures stop working).
 
 ```bash
 curl http://localhost:8080/restart
@@ -367,14 +398,32 @@ See the `examples/` folder for more complete examples (comments, search, trendin
 
 ### Environment Variables
 
-| Variable                    | Default | Description                                          |
-| --------------------------- | ------- | ---------------------------------------------------- |
-| `PORT`                      | `8080`  | Server port                                          |
-| `PROXY_ENABLED`             | `false` | Enable proxy support                                 |
-| `PROXY_HOST`                | -       | Proxy host and port (e.g., `proxy.example.com:8080`) |
-| `PROXY_USER`                | -       | Proxy username                                       |
-| `PROXY_PASS`                | -       | Proxy password                                       |
-| `PUPPETEER_EXECUTABLE_PATH` | auto    | Custom Chrome/Chromium path                          |
+| Variable                         | Default   | Description                                                |
+| -------------------------------- | --------- | ---------------------------------------------------------- |
+| `PORT`                           | `8080`    | Server port                                                |
+| `PROXY_ENABLED`                  | `false`   | Enable proxy support                                       |
+| `PROXY_HOST`                     | -         | Proxy host and port (e.g., `proxy.example.com:8080`)       |
+| `PROXY_USER`                     | -         | Proxy username                                             |
+| `PROXY_PASS`                     | -         | Proxy password                                             |
+| `PUPPETEER_EXECUTABLE_PATH`      | auto      | Custom Chrome/Chromium path                                |
+| `IDENTITY_POOL_SIZE`             | `3`       | Browser identities kept warm; requests rotate through them |
+| `MAX_GENERATIONS_BEFORE_REFRESH` | `500`     | Signatures one identity may emit before it is retired      |
+| `MAX_SESSION_AGE_MS`             | `1800000` | Identity age (ms) before it is retired                     |
+| `REPORT_MIN_AGE_MS`              | `15000`   | `/report` is ignored for identities younger than this (ms) |
+| `REPORT_RETIRE_COOLDOWN_MS`      | `20000`   | Minimum gap (ms) between report-driven retirements         |
+
+### Identity pool
+
+Every signature carries the cookies (`ttwid`, `msToken`, `tt_chain_token`, …) of the
+browser identity that produced it, and TikTok keys its abuse decisions on that identity.
+A single identity signing every request soon gets flagged: `/api/post/item_list/` then
+answers HTTP 200 with an empty body for _any_ egress IP carrying it, while the same URL
+signed by a fresh identity still works. The server therefore keeps `IDENTITY_POOL_SIZE`
+independent identities (one incognito context each), rotates through them per request,
+retires each after `MAX_GENERATIONS_BEFORE_REFRESH` signatures or `MAX_SESSION_AGE_MS`,
+and always mints the replacement **before** closing the old one so the queue never stalls.
+Callers that see an empty body should `POST /report` so the burnt identity is retired
+immediately instead of serving the rest of its budget.
 
 ### Proxy Configuration
 
