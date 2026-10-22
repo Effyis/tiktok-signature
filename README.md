@@ -1,5 +1,5 @@
 # TikTok Signature Generator
-
+ 
 ![NPM](https://img.shields.io/npm/l/tiktok-signature.svg?style=for-the-badge) ![npm](https://img.shields.io/npm/v/tiktok-signature.svg?style=for-the-badge)
 
 Generate valid **X-Bogus** and **X-Gnarly** signatures for TikTok API requests. This service uses a headless browser with TikTok's own SDK to generate authentic signatures that work reliably.
