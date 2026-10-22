@@ -1076,21 +1076,10 @@ function normalizeUrlFingerprint(urlObj) {
     screen_height: "1080", // matches viewport
   };
 
-  let normalized = false;
   for (const [key, correctValue] of Object.entries(fingerprint)) {
     if (params.has(key) && params.get(key) !== correctValue) {
-      console.log(
-        `[Server] Normalizing ${key}: "${params.get(key)}" -> "${correctValue}"`,
-      );
       params.set(key, correctValue);
-      normalized = true;
     }
-  }
-
-  if (normalized) {
-    console.log(
-      "[Server] URL fingerprint params normalized to match browser environment",
-    );
   }
 }
 
