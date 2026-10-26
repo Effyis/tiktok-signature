@@ -154,6 +154,7 @@ const identities = [];
 let rrCursor = 0;
 let poolWarming = null; // in-flight warm-up promise (startup / restart)
 let replacementsInFlight = 0;
+let consecutiveCreateFailures = 0;
 
 // Stats accumulators — reset on each Elastic flush
 let statsTotalMs = 0;
@@ -741,7 +742,11 @@ async function addIdentity() {
   try {
     const idn = await createIdentity();
     identities.push(idn);
+    consecutiveCreateFailures = 0;
     return idn;
+  } catch (e) {
+    consecutiveCreateFailures++;
+    throw e;
   } finally {
     replacementsInFlight--;
   }
@@ -1148,13 +1153,15 @@ async function handleRequest(req, res) {
     if (url.pathname === "/health") {
       const stats = poolStats();
       const degraded =
-        stats.readyIdentities === 0 &&
-        replacementsInFlight === 0 &&
-        !poolWarming;
+        (stats.readyIdentities === 0 &&
+          replacementsInFlight === 0 &&
+          !poolWarming) ||
+        consecutiveCreateFailures >= 5;
       res.writeHead(degraded ? 503 : 200);
       res.end(
         JSON.stringify({
           status: degraded ? "degraded" : "ok",
+          consecutiveCreateFailures,
           ready: stats.readyIdentities > 0,
           initializing: !!poolWarming || replacementsInFlight > 0,
           initMethod: identities.find((x) => x.ready)?.initMethod || null,
