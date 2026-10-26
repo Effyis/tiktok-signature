@@ -720,8 +720,9 @@ async function exportMsTokensToPool(idn) {
 }
 
 /**
- * Retire an identity: spin up its replacement first (so capacity never drops
- * to zero), then close it. Idempotent.
+ * Retire an identity: destroy it first, then create a replacement.
+ * Destroying first gives Chrome a clean slate (no competing JS context).
+ * The readiness probe pulls the pod from rotation during the brief gap.
  */
 async function retireIdentity(idn, reason) {
   if (idn.retired || idn.retiring) return;
@@ -734,26 +735,20 @@ async function retireIdentity(idn, reason) {
     await exportMsTokensToPool(idn);
   }
 
-  // Keep serving from this identity until a replacement is ready, unless we
-  // still have other ready identities to carry the load.
-  const othersReady = identities.filter(
-    (x) => x !== idn && x.ready && !x.retiring,
-  );
-  if (othersReady.length > 0) {
-    await destroyIdentity(idn);
-    replaceIdentityInBackground();
-  } else {
+  // Destroy first so Chrome has a clean slate for the replacement context.
+  // The readiness probe pulls this pod from rotation while readyIdentities === 0,
+  // so k8s routes to the other pods during the brief gap.
+  await destroyIdentity(idn);
+  const othersReady = identities.filter((x) => x.ready && !x.retiring);
+  if (othersReady.length === 0) {
     try {
       await addIdentity();
     } catch (e) {
-      console.error(
-        `[Identity ${idn.id}] Replacement failed, keeping old identity for now:`,
-        e.message,
-      );
-      idn.retiring = false;
+      console.error(`[Identity] Replacement failed: ${e.message}`);
       return;
     }
-    await destroyIdentity(idn);
+  } else {
+    replaceIdentityInBackground();
   }
 }
 
