@@ -519,15 +519,32 @@ async function initPageWithLocalSdk(idn) {
 
   page.on("request", requestHandler);
 
-  console.log(`[Identity ${idn.id}] Navigating to TikTok...`);
+  // Log TikTok navigation responses during init for debugging
+  const responseHandler = (response) => {
+    try {
+      const url = response.url();
+      if (url.includes("tiktok.com") && !url.includes("/webmssdk/")) {
+        const status = response.status();
+        if (status !== 200)
+          console.log(
+            `[Identity ${idn.id}] Response ${status}: ${url.slice(0, 120)}`,
+          );
+      }
+    } catch (e) {}
+  };
+  page.on("response", responseHandler);
+
+  console.log(`[Identity ${idn.id}] Step 1/4: goto tiktok.com...`);
   await page.goto("https://www.tiktok.com/@zara", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
+  console.log(`[Identity ${idn.id}] Step 1/4 done: landed on ${page.url()}`);
 
   // Wait for page to settle and SDK to initialize
   await new Promise((r) => setTimeout(r, 3000));
 
+  console.log(`[Identity ${idn.id}] Step 2/4: checking SDK status...`);
   // Check SDK status
   const sdkStatus = await page.evaluate(() => {
     const hasAcrawler = !!window.byted_acrawler;
@@ -550,6 +567,7 @@ async function initPageWithLocalSdk(idn) {
   idn.initMethod = "local-sdk";
 
   // Warm up the SDK
+  console.log(`[Identity ${idn.id}] Step 3/4: SDK warm-up...`);
   await page.evaluate(() => window.scrollBy(0, 500));
   await new Promise((r) => setTimeout(r, 2000));
 
@@ -557,8 +575,10 @@ async function initPageWithLocalSdk(idn) {
   // a blank/white page, sometimes the "Something went wrong" interstitial. The
   // reload primes the second pass with the cookies/msToken accumulated on the
   // first pass, after which the page bundle reliably emits signed requests.
+  console.log(`[Identity ${idn.id}] Step 4/4: reload...`);
   try {
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+    console.log(`[Identity ${idn.id}] Step 4/4 done: ${page.url()}`);
   } catch (e) {
     console.log(`[Identity ${idn.id}] Reload warning:`, e.message);
   }
